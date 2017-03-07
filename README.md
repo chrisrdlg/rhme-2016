@@ -431,10 +431,12 @@ After multiple tries, the correct public exponent is `65537 = 0x10001`
 
 The correct private key is 
 
-`0x8499c5e0fe2848379d0eac9cfdbe21c5540104819a9
+```
+0x8499c5e0fe2848379d0eac9cfdbe21c5540104819a9
 7156a4d1b19456bb682db77e26bff4ab857144a85f4214b8ca866ec0033a61edf865b349906782b9
 c2fc4d57d6621f731ec7009bdeafe59256afdc8fd84f2fe7d70e9f84756f48008a15c20a5d38dacd
-2bcd1b5f2b0b855b911e6a3a8cb9072b9f6f7847933aa260521a1`
+2bcd1b5f2b0b855b911e6a3a8cb9072b9f6f7847933aa260521a1
+```
 
 The sha-1 hash of "admin" is `0xD033E22AE348AEB5660FC2140AEC35850C4DA997`
 
@@ -442,19 +444,25 @@ PKCS1 format is `0001 FFPADDING 00 ASN1_HASH HASH_VALUE`
 
 After formating, the input to sign is equal to 
 
-`0x0001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+```
+0x0001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 fffffffffffffffffffffffffff 00 3021300906052b0e03021a05000414 
-d033e22ae348aeb5660fc2140aec35850c4da997`
+d033e22ae348aeb5660fc2140aec35850c4da997
+```
 
 The generate signature is equal to 
 
-`0x80103B7FC74600B844BB73667C2C8F23AFA717E25E549756819A53BD875A79ECC80DBD9E415DF4
+```
+0x80103B7FC74600B844BB73667C2C8F23AFA717E25E549756819A53BD875A79ECC80DBD9E415DF4
 D4356FB623DA62A6388D0D1BF277DBAA6021C5E5FD51A2BA088BFDEE2CEA800E50155AEA1AD7A101
 8EC7621E2DAC9D16CA6C1910EE3F0382E0A0ECA1124D6B357A8D669CBA6C0D24F384A5FC2890DB54
-341C383289E32C727F`
+341C383289E32C727F
+```
 
-`FLAG:e5bcdc1d710fca2194afb67c30e2f4e4`
+```
+FLAG:e5bcdc1d710fca2194afb67c30e2f4e4
+```
 
 <a name="securefs"></a>
 ## AVR Secure Filesystem
@@ -748,4 +756,74 @@ Chip unlocked^M
 Your flag is: 02ab16ab3729fb2c2ec313e4669d319egpio glitch trigger PB0 pin PC15 length 100 offsets 191400
 ```
 
+<a name="et"></a>
+## Emergency Transmitter (other, 500 points)
 
+*Emergency transmitter* is an interesting challenge in that it requires multiple skills, the most important one being understanding fault injection and most likely Differential Fault Analysis on AES for the final step (there are likely other ways to solve the challenge, but we were not successful). A cryptographic background therefore helps.
+
+The principle of the challenge is that we input a value to the board, which then blinks an LED. The description on the RHme2 website clearly indicates that we will be dealing with an encryption, that we can check by comparing two outputs (the one from the board against the one we are expecting based on the key we have recovered). First, we need to get this output, and as the LED is the only interaction the board has with us, we will study its blinking pattern.
+
+A look at an Arduino Nano schematics shows that there are four LEDs, one for power, one for RX, one for TX and a last one which is bound to the value on pin D13. We hooked up two Arduinos, a first one to interact with the RHme2 board over a serial connection and send a trigger signal to a second Arduino, which constantly monitored the state of D13. Timings are extremely important in such situations as you want to have an accurate count of events, so we avoided monitoring the LED from a PC or a Raspberry Pi. In the end, we would have on one side a hexadecimal value sent to the board, on the other side a data structure equivalent to a sequence of zeros and ones matching the LED blinking pattern.
+
+Next, this sequence needs to be turned into something useful, which means determining the smallest transmission unit, checking that all other transmission patterns are a multiple of this unit, and getting back to a digital value. It turned out that there were only two kinds of patterns at a high state (ie LED on). Interpreting this as Morse code gives you the output value, a 32-character long hexadecimal string.
+
+Now that we can read our output, the next step is to observe the behaviour of the challenge. First, the input length matters:
+- if you provide twice the same input and it is shorter than 16 bytes, you get different outputs
+- if you provide twice the same input and it is 16-byte long, you get identical outputs
+
+Next, we experimented with empty inputs: after a reset, if you simply press Enter, you will get an identical output every time. The good point is that everything is deterministic, no random number generation is involved.
+
+A more interesting observation is the following one:
+1. collect a first output for whatever input and write it down
+2. then get another output by just pressing Enter (empty input) and write it down
+3. now use the *first output* as an *input*, you will get the second output again
+
+It means that the same buffer is used for input and output. It hints at a much more useful property: if this actually is the state buffer of the algorithm, where all the intermediate states are written to at some point, we can try to introduce a perturbation in the algorithm execution. We can think of injecting a glitch to change a value or skip part of a copy loop, but is actually much simpler here (similar to a whitebox setup): just send data during the execution of the algorithm to the board, you'll control precisely what value you are replacing the internal state with.
+
+We can also now explain the behaviour with short messages: a part of the previous output was reused as we only overwrote part of it, and our actual input size is 16 bytes.
+
+We have three more steps to take:
+- think of an attack path
+- determine when to inject our modification
+- run the attack
+
+Based on the input and output sizes, we made an educated guess that we were dealing with an AES128. This algorithm has this nice property that if you inject a fault at the proper time and location, you will get a recognizable [*differential pattern*](https://www.cryptologie.net/article/169/differential-fault-analysis/). So with this hypothesis in mind, we tried looking for a delay, after inputting our plaintext, that would generate such a differential pattern, and if possible in a reliable way.
+
+To have a reliable delay for the injection, we set up another Arduino which acted as a serial gateway between a PC and the target. We measured the global execution time of the algorithm, took some margin to cover the two last rounds and sent just one byte to change the first intermediate state byte, progressively incrementing our delay. When we saw the expected differential pattern, we knew we were close to breaking the challenge as DFA was clearly on the table.
+
+We considered another attack, though. The final AES operation is an AddRoundKey, ie an XOR. If we can reset the internal state to all zeros right before it, then the output will be the last round key. We'd have to invert the key schedule to get back to the main key and be done quickly. We didn't manage to get our flag this way, though, so we went back to DFA.
+
+Each useful fault injection for a DFA will give you information for 1/4th of the last round subkey. We already knew how to fault the first byte, but we also had to change the second, third and fourth ones. For this, we determined what the actual value was for the first byte, by bruteforcing it and looking for a *safe error*: we inject a fault, which has no effect on the output, yielding the actual value. We then injected the safe error value for the first byte and a faulty second byte, and repeated the process to collect DFA information for all byte positions.
+
+To recover the last round subkey and invert the key schedule to finally get the AES key, you can have a look at [SideChannelMarvels](https://github.com/SideChannelMarvels).
+
+<a name="twist"></a>
+## Twistword (other, 400 points)
+
+We spent quite a lot of time dealing with *Twistword*. The principle of this challenge is that we have to provide a so-called token to the board, which is then checked. If we do not provided the expected one, the board gives us the value we should have entered.
+
+The main problem with this challenge is that there is pretty much no clue about what you are supposed to do to break it, and in particular whether you are following the right path for that. We explored many dead ends, and probably for way too long each time!
+
+Based on this simple behaviour, we first tried to better control what looked like a random sequence. Our initial attempts aimed at limiting the entropy sources:
+- we grounded all the analog pins
+- instead of a human, we had an Arduino setup to input data to the target to avoid timing-related entropy
+- we even tried better controlling the temperature at which the board was running [with a hairdryer](http://skemman.is/stream/get/1946/10689/25845/1/ardrand.pdf)
+
+Based on the name of the challenge and the way it is written on the challenge map (with upside down letters), we investigated:
+- Edwards ECC curves
+- quadratic twist
+- blockcipher twist attacks
+- Mersenne Twister (MT) and TinyMT PRNGs and their attacks with tools such as [untwister](https://github.com/altf4/untwister)
+
+We did notice through Simple Power Analysis and Timing Analysis that there were NVM erase/writes and some processing that was not done in constant time. Consequently, we also considered:
+- timing statistical distribution
+- timing attack on the value comparison
+- faulting the NVM modifications to skip them
+
+We also studied the statistical quality of the generated numbers, checked whether the next output was a md5 of the previous token.
+
+We were pretty much out of ideas, so we looked for a simpler approach, and we came up with collision attacks. So far, we had mostly collected a few to thousands of values after a single reset. The idea was now to reset then collect ten values, hoping that at some point, we would get twice the same token after a reset. If such a collision occurred, we would then check whether the second value was also colliding, meaning that the sequence was deterministic and that we would be able to replay the next token.
+
+A rough estimate showed that we could get around 10 sequences per minute and that despite the birthday paradox, we were still looking at hours of token captures without even being sure that we were going anywhere. What a relief when we observed our first collision! We miserably failed to properly input the replayed tokens to the board, so we had to wait another couple of hours before getting a second chance...
+
+We couldn't figure out the seeding process itself, it is still unclear whether the entropy was at least partially obtained by some analog measure or exclusively by iterating and storing a value in NVM to would not be erased by a reflash (EEPROM maybe?). A fault attack on the seeding was likely the expected way to solve the challenge. But you know... whatever works!
