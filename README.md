@@ -1,6 +1,36 @@
 # rhme-2016 write-up
 
-## The Impostor (reverse - 300 pts)
+## Table of contents
+ * [Reverse]
+   * [Jumpy](#jumpy)
+   * [The Impostor](#impostor)
+   * [FridgeJIT](#fridge)
+ * [Exploit]
+   * [Photo Manager](#photo)
+   * [Animals](#animals)
+   * [Casino](#casino)
+   * [Weird Machine](#weird)
+ * [Crypto]
+   * [Key Server](#keyserver)
+   * [Secure Filesystem](#securefs)
+   * [Secure Filesystem v1.92r1](#securefs192r1)
+ * [Fault Injection]
+   * [Fiesta](#fiesta)
+   * [Finetuning](#fine)
+   * [Fiasco](#fiasco)
+   * [Revenge](#revenge)
+ * [Side Channel Analysis]
+   * [Piece of Scake](#pas)
+   * [Still Not Scary](#sns)
+   * [Escalate](#escalate)
+ * Other
+   * [Twist Word](#twist)
+   * [Emergency Transmitter](#et)
+   * [Secret Sauce](#secret)
+   * [Whack a mole](#wam)
+   * [Hide & Seek](#hidenseek)
+
+## The Impostor (Reverse - 300 pts) <a name="impostor"></a>
 This binary ask for a 16 bytes password.<br>
 First, the FLAG string is load in the function @ 0x1300.<br>
 Starting the reverse from 0x1300:<br>
@@ -46,7 +76,7 @@ void main()
 
 The code was: 4rM_c0rT3xM0_4vR
 
-## FridgeJIT (reverse - 400 pts)
+## FridgeJIT (reverse - 400 pts) <a name="fridge"></a>
 Like every reverse, a password was asked.<br>
 This time we have the binary and a memory dump.<br>
 The strings displayed can't be found in the firmware, they shall be in the VM.<br>
@@ -170,7 +200,7 @@ for chunk in s:
 ```
 if you execute this script, you will find the code (flag) : Y0u_G0T_1t_r1ght!
 
-## Hide & Seek (Other - 400 pts)
+## Hide & Seek (Other - 400 pts) <a name="hidenseek"></a>
 This challenge is based on FridgeJIT.<br>
 At startup, the loader is available to execute a custom VM.<br>
 If there is no errors in the VM, the program will finish..and no flag :p<br>
@@ -240,7 +270,7 @@ print s.xfer("d\n")
 s.close()
 ```
 
-## Weird Machine (Exploit - 400 pts)
+## Weird Machine (Exploit - 400 pts) <a name="weird"></a>
 This challenge is the continuation of hide&seek, but harder (normally).<br>
 The behavior is exactly like hide&seek, you're beginning with the loader and you
 can enter in debug mode by sending a wrong command.<br>
@@ -270,7 +300,7 @@ print s.xfer("d\n")
 s.close()
 ```
 
-## Casino (Exploit - 150 pts)
+## Casino (Exploit - 150 pts) <a name="casino"></a>
 :> String format exploit
 
 first you need free coupons by playing with the Spin [1]<br>
@@ -300,7 +330,7 @@ print s.xfer("\x17\x61 %s\n")
 s.close()
 ```
 
-## Photo manager (Exploit - 100 pts)
+## Photo manager (Exploit - 100 pts) <a name="photo"></a>
 Only 2 selections for this one, the second selection allows you to know how many<br>
 bytes are available, the first is waiting his overflow with the length computed
 before.<br>
@@ -326,7 +356,7 @@ print s.xfer("\x30"*delta + chr(delta) + "\xff\n")
 s.close()
 ```
 
-## Animals (Exloit - 200 pts)
+## Animals (Exploit - 200 pts) <a name="animals"></a>
 You can select 1 of the 3 animals to display an ASCII art (cat, dog, mouse).<br>
 First test, we sent dog+aaaaaaaaaa...(many times) until a memory dump.<br>
 After analysing these bytes, we can understand that they correpond to a table
