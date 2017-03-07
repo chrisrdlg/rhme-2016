@@ -23,7 +23,7 @@
    * [Piece of Scake](#pas)
    * [Still Not Scary](#sns)
    * [Escalate](#escalate)
- * Other
+ * [Other]
    * [Twist Word](#twist)
    * [Emergency Transmitter](#et)
    * [Secret Sauce](#secret)
@@ -48,7 +48,7 @@ With the help of the Hopper decompiler, we discovered a XTEA algorithm used
 in order to encrypt 16 bytes.<br>
 We just need to reverse this function with the following C code:
 
-```
+``` c
 #include <stdio.h>
 #include <stdint.h>
 
@@ -386,3 +386,366 @@ print s.xfer("dogaaaaaaaaaaaaaaaaa\x4c\x01\x6b\x03\r\n")
 s.close()
 ```
 and got the flag of course !
+
+<a name="keyserver"></a>
+## AVR keyserver
+
+The purpose is to generate a RSA PKCS1_v1_5 SHA-1 signature of "admin" with one 
+of the administrator's key:
++ Alice
++ Bob
++ Carl
++ David
++ Edward
++ Fleur
++ Gary
+
+We have only the public modulus of the public key. In RSA public modulus, 
+denoted $n$, is equal to the product of two prime numbers, denoted $p$ and $q$.
+These two prime numbers are secret and once found the private can be recovered.
+
+To generate a huge prime number, a randomly generated seed is used as a starting 
+point to found the next prime. If this seed is poorly generated, collision may 
+happen. Let's try if we have a collision on prime numbers.
+
+$gcd(alice_{n}, bob_n) = 1$ which means no co factor. 
+$alice_n = alice_p * alice_q$ and $bob_n = bob_p * bob_q$. 
+All prime numbers are different.
+This statement is true for all couples of public key ... except one!
+
+
+$p = gcd(bob_n, gary_n) =$ `0xf3432ec95a2d8ec3e2dc6c52c1eb97d03601d6a0c1e89848fe
+54f55b31a9fc35de1ce9210ff84fd79be293924de45320c86e5dc9d970b68079737a1bb2e34935`
+ 
+So $gary_q = gary_n/p$ and we have gary_p and gary_q.
+We could have bob's prime numbers as well.
+ 
+Now we have to compute the signature of “admin” using a public exponent 
+which is unknown. 
+Public exponent are often small numbers: $3$, $5$, $17$, $257$ or $65537$.
+We have to compute the associated private exponent, denoted $d$ which is equal 
+to $e^{-1} \mod (p-1)(q-1)$, of all possible public exponent, denoted $e$, and 
+compute the associated signature.
+
+After multiple tries, the correct public exponent is `65537 = 0x10001`
+
+The correct private key is 
+
+`0x8499c5e0fe2848379d0eac9cfdbe21c5540104819a9
+7156a4d1b19456bb682db77e26bff4ab857144a85f4214b8ca866ec0033a61edf865b349906782b9
+c2fc4d57d6621f731ec7009bdeafe59256afdc8fd84f2fe7d70e9f84756f48008a15c20a5d38dacd
+2bcd1b5f2b0b855b911e6a3a8cb9072b9f6f7847933aa260521a1`
+
+The sha-1 hash of "admin" is `0xD033E22AE348AEB5660FC2140AEC35850C4DA997`
+
+PKCS1 format is `0001 FFPADDING 00 ASN1_HASH HASH_VALUE`
+
+After formating, the input to sign is equal to 
+
+`0x0001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+fffffffffffffffffffffffffff 00 3021300906052b0e03021a05000414 
+d033e22ae348aeb5660fc2140aec35850c4da997`
+
+The generate signature is equal to 
+
+`0x80103B7FC74600B844BB73667C2C8F23AFA717E25E549756819A53BD875A79ECC80DBD9E415DF4
+D4356FB623DA62A6388D0D1BF277DBAA6021C5E5FD51A2BA088BFDEE2CEA800E50155AEA1AD7A101
+8EC7621E2DAC9D16CA6C1910EE3F0382E0A0ECA1124D6B357A8D669CBA6C0D24F384A5FC2890DB54
+341C383289E32C727F`
+
+`FLAG:e5bcdc1d710fca2194afb67c30e2f4e4`
+
+<a name="securefs"></a>
+## AVR Secure Filesystem
+
+This challenge is presented as a secure filesystem with a token system to 
+authenticate itself. Some examples are provided:
+```
+96103df3b928d9edc5a103d690639c94628824f5 | cat.txt
+933d86ae930c9a5d6d3a334297d9e72852f05c57 | cat.txt:finances.csv
+83f86c0ba1d2d5d60d055064256cd95a5ae6bb7d | cat.txt:finances.csv:joke.txt
+ba2e8af09b57080549180a32ac1ff1dde4d30b14 | cat.txt:joke.txt
+0b939251f4c781f43efef804ee8faec0212f1144 | finances.csv
+4b0972ec7282ad9e991414d1845ceee546eac7a1 | finances.csv:joke.txt
+715b21027dca61235e2663e59a9bdfb387ca7997 | joke.txt
+```
+
+From that we understand that a 160 bits value is used as authentication token.
+We notice also that it is linked to the filename list we want to access.
+
+The question to answer is what is the cryptographic function used to generate 
+such tokens? What is the key? What is the data?
+
+First, the token length gives a strong hint on which function has been used to 
+generate the token. As a hash function, we do have the choice between SHA-1, 
+RIPEMD-160, HAVAL-160, Tiger-160. To be honest, we strongly believed it was 
+Tiger because we wanted to.
+
+Second, what could be the secret key used to be authenticated to the file system.
+How can we break a HMAC with a full length key? After long research and several 
+tries we found a nice github repository with a tool exploiting length extension 
+attack on hash function. It smells good : https://github.com/bwall/HashPump.
+We actually don't care of the key value, only a guess on key length has to be 
+done. Let's guess password length for 0 to 32 and try to hash passwd file by 
+using a give token.
+
+Th flag is found.
+
+<a name="securefs192r1"></a>
+## AVR Secure Filesystem v192.r1
+
+This is next version of Secure Filesystem with longer token 2x 192 bits.
+Some examples are provided:
+```
+897703036b2e18116b36353d92ac3dd978845fc99a735b8a |
+dfd0f4a25b7d529e89ac030c2b681e93831e95a8186823b9 | cat.txt
+897703036b2e18116b36353d92ac3dd978845fc99a735b8a |
+f2bca35d472116dc6d5bebe96f1a3af249be78c63219a0dc | cat.txt:finances.csv
+897703036b2e18116b36353d92ac3dd978845fc99a735b8a |
+7eed666977d3861dbaefd16b2ed7dc5b639e51853ca6e7b3 | cat.txt:finances.csv:joke.txt
+897703036b2e18116b36353d92ac3dd978845fc99a735b8a |
+51d915246394ce976f8768cf3300087cb5b9958bbec30f9c | cat.txt:joke.txt
+897703036b2e18116b36353d92ac3dd978845fc99a735b8a |
+ae2a5a38b4d03f0103bce59874e41a0df19cb39b328b02fa | finances.csv
+897703036b2e18116b36353d92ac3dd978845fc99a735b8a |
+c66b5e48f5e600982724eca3804fb59b7b0f395a6e17e1ce | finances.csv:joke.txt
+897703036b2e18116b36353d92ac3dd978845fc99a735b8a |
+3a3a9b3cc5239fdf4572157296903a0237a4aaeeaa8f3d15 | joke.txt
+```
+
+We directly noticed the first 192 bits which is static, looks so weird to be 
+innocent. Another point is the long processing time which feels like doing 
+overkilling execution on a poor ATMega328p. The final hint is the title wich is
+v192.r1. 
+Gathering all those hints, we found out that it might be a ECDSA over a 
+192 bits field. The static part is depending on a random used during ECDSA 
+signature generation and PS3 hacks makes it famous. We are now confident!
+
+Openssl gives us:
+``` 
+  secp192k1 : SECG curve over a 192 bit prime field
+  prime192v1: NIST/X9.62/SECG curve over a 192 bit prime field
+  prime192v2: X9.62 curve over a 192 bit prime field
+  prime192v3: X9.62 curve over a 192 bit prime field
+  brainpoolP192r1: RFC 5639 curve over a 192 bit prime field
+  brainpoolP192t1: RFC 5639 curve over a 192 bit prime field
+```
+
+We have two candidates: brainpoolP192r1 and prime192v1 which has another name 
+NIST P-192r1.
+
+Let's try these curves in order to find the private scalar which then can be 
+used to generate ECDSA for passwd file.
+
+<a name="pas"></a>
+## Piece Of SCAke
+
+After several tries in acquering power traces from different point. We decided 
+to develop our own PCB hosting the Riscure ATMega328p. It has been widely 
+inspired from Colin O'Flynn board. It is natural as we wanted to plug it to a 
+chipwhisperer lite. 
+
+Here is the setup:
+
+A front view
+
+
+![](hydrarhme1.jpg)
+
+
+A back view
+
+
+![](hydrarhme2.jpg)
+
+With this setup we do had clean curves and Piece Of SCAke 
+has been a real piece of scake. We have collected 500 traces with random inputs.
+Using numpy, we computed the correlation on these inputs and found a strong 
+correlation which validated our setup. The leakage is here and the micro 
+controller leaks a lot. The next and final step was to perform key byte guess 
+attacking the ouput of AES Sbox for each byte. A strong correlation between 
+hamming weight of AES Sbox output and traces validate the key byte guess. 
+All key bytes can be retrieved as follow and the flag is the key itself.
+
+<a name="sns"></a>
+## Still not scary
+
+We acquired 500 traces from the same setup. We noticed a desynchronization.
+
+We used this synchronization function :
+
+``` python
+def min_dist_curve(curve,ref,shifting_window,pattern_window):                   
+      distmin = sys.maxint                                                      
+      for s in range(shifting_window[0],shifting_window[1]):                    
+          dist = 0                                                              
+          for p in range(pattern_window[0],pattern_window[1]):                  
+              dist = dist + np.abs(ref[p] - curve[p+s])                         
+          distmin = min(dist,distmin)                                           
+          if distmin == dist:                                                   
+              offset = s                                                        
+      return offset,distmin  
+```
+
+After alignement we decided to change selection funtion from AES Sbox to AES 
+AddRoundKey as we thought that masking has been implemented. We noticed that no 
+jitter has been put around AddRoundKey function ... PERFECT.
+
+Here is an overview after synchronization
+![SNC](snc.png)
+
+Before 6500 we can see some fake AddRoundKey.
+The last set of AddRoundKey are locate betwee 6500 and 8500.
+After 8500 we can see the Sbox routines.
+
+The script performing the attack looks like:
+
+``` python
+# Traces offset where ARK has been identified
+tbegin = 6500                                                                   
+tend =  8500                                                                    
+                                                                                
+byte = 0                                                                        
+found = 0                                                                      
+# Buffer containing the retrieved key
+key = []                                                                        
+# Key space length 
+knumber = 256      
+# Hypothesis drived by key guess                                               
+hyp = np.zeros(shape=(256,len(textin)))                                        
+
+# We fill hypothesis for all messages given a key guess 
+for i in range(len(textin)):                                                    
+    for kg in range(knumber):                                                   
+        hyp[kg][i] = pysca.hw(kg^textin[i][byte])                               
+
+# We go through with traces point per point            
+t = tbegin                                                                      
+while t < tend:                                                                 
+    # Observation array containing all traces at time t
+    obs = [] 
+    for i in range(len(textin)):                                                
+        obs.append(synctracedata[i][t])
+    
+    # We test all possible key and compute a correlation
+    for kg in range(knumber):                    
+
+	# Correlation coefficient is included in [-1;1]
+	# Our setup have a reversed the power comsumption maybe to due a switch
+	# Nevermind the correlation is negative, an absolute value can be taken
+	# but it will bring couple of fake correlation
+
+        if (np.corrcoef(hyp[kg],obs)[0][1] < -0.7):                             
+            if not found:                                                       
+                print byte, t, hex(kg)                                          
+                key.append(kg)                                                  
+                found = 1                                                       
+                break                                                           
+        if found and (np.abs(np.corrcoef(hyp[kg],obs)[0][1]) < 0.7):            
+            found = 0                                                           
+            byte = byte + 1                                                    
+    t = t + 1                                                                   
+
+``` 
+
+The attack retrieved all key bytes with some ambiguity. We had a plaintext and 
+a ciphertext. So we bruteforced key bytes which were ambiguous. 
+The good key has been then recovered.
+
+<a name="escalate"></a>
+## Escalate
+
+For this challenge, the exact same process has been applied. The jitter has been 
+put between each sbox computation. It seems that a random number generation is 
+executed at the beginning. But it doesn't matter, Simple Power Analysis reveals 
+that the AddRoundKey is clean and unchanged. The hard work has been done on the 
+synchronization were a wide window has been set to look after points to be 
+synchronized.
+
+<a name="fiasco"></a>
+## Fiasco
+
+Despite the discouragement from eletronic guys of the team I have decide to go 
+for my VCC glitch setup ;)
+
+We removed all capacitors located in the board and powered the arduino by an 
+external power supply at 4.5V.
+
+In order to perform the glitch we used an HydraBus with a glitch time as input.
+We connected an HydraBus gpio pin to a mosfet to drive the current from 1 to 0 
+and from 0 to 1 quickly. 
+
+The piece of code is here below:
+
+``` c
+void glitch_n(uint32_t port_trigger, int pin_trigger, uint32_t port_, int pin_, 
+	      uint32_t glitch_length, uint32_t glitch, uint32_t * glitch_offset)
+{
+
+        uint32_t t;
+        t = bsp_gpio_pin_read(port_trigger,pin_trigger);
+        while(t == bsp_gpio_pin_read(port_trigger,pin_trigger));
+
+        t = 0;
+        // Loop on glitchs
+        while(t < glitch)
+        {
+                // Delay the glitch
+                wait_nbcycles(glitch_offset[t++]);
+
+                // Perform the glitch during glitch_length
+                clr(port_,pin_);
+                wait_nbcycles(glitch_length);
+                set(port_,pin_);
+        }
+
+}
+```
+
+We do have a trigger that we connected to arduino's TX. In this setup,
+the glitch_length has been set to 100.
+
+The calibration of the glitch has been performed on easyfi.hex. And then we ran
+this script to seek after a successful fault injection:
+``` python
+while(1):                                                                       
+    # Setup Hydra to glitch VCC                                                 
+    hydracon.flush()                                                            
+    hydracon.write(glitch_cmd_ + "\n")                                          
+    time.sleep(0.3)                                                             
+    rhmecon.write("\r\n")                                                       
+    rr = rhmecon.read_all()                                                     
+    result.write(glitch_cmd_ + "\n")                                            
+    result.write(rr)                                                            
+    result.flush()                                                              
+    print rr                                                                    
+    print "glitch done"                                                         
+                                                                                
+    glitch_cmd_ = glitch_cmd                                                    
+    for i in range(len(offsets)):                                               
+        glitch_cmd_ = glitch_cmd_ + " offsets " + str(int(offsets[i]) + int(steps[i]))
+        offsets[i] = str(int(offsets[i]) + int(steps[i]))
+    print glitch_cmd_                                    
+    if ("flag" in rr):                                   
+        end_of_prgm() 
+
+```
+And here is the output obtained:
+
+```
+Please write your password: gpio glitch trigger PB0 pin PC15 length 100 offsets 191000
+Good try, cheater!^M
+Chip locked^M
+Please write your password: gpio glitch trigger PB0 pin PC15 length 100 offsets 191100
+Good try, cheater!^M
+Chip locked^M
+Please write your password: gpio glitch trigger PB0 pin PC15 length 100 offsets 191200
+Good try, cheater!^M
+Chip locked^M
+Please write your password: gpio glitch trigger PB0 pin PC15 length 100 offsets 191300
+Chip unlocked^M
+Your flag is: 02ab16ab3729fb2c2ec313e4669d319egpio glitch trigger PB0 pin PC15 length 100 offsets 191400
+```
+
+
